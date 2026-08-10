@@ -80,15 +80,40 @@ Color Laser 15x by converting the same page and comparing output bytes:
 | `Trapping=Off/Medium/Maximum` | **yes** | small |
 | `EdgeEnhance=Off` | **yes** | `Normal` and `Maximum` are identical |
 | `MediaType=...` | **yes** | sets `@PJL SET PAPERTYPE`, changes fuser behaviour |
-| `Screen=Normal/Enhanced/Detailed` | **no** | byte-identical output |
+| `Screen=Normal/Enhanced/Detailed` | **no** | byte-identical output; the driver never reads it |
 | `secRGB=Standard/Vivid/Device/...` | **no** | byte-identical output |
 | `TonerSaveMode=Save` | **no** | byte-identical output |
-| `DocumentType=Photo/...` | **no** | not even declared as a UI option in the PPD |
+| `DocumentType=Photo/...` | **no** | a JCL option whose choices emit an empty string — only `X-Ray` sends any PJL |
 
 Example:
 
 ```sh
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 file.pdf
+```
+
+### The halftone screen cannot be changed
+
+The most visible quality limit is the halftone: a **horizontal line screen** whose
+gaps are wide in light tones and close up in dark ones, so mid-tones look like
+stripes that never quite merge. Dark areas look best because the lines fuse there.
+
+It is fixed inside HP's Smart CMS engine and nothing exposed can move it. Verified,
+so you do not have to repeat it:
+
+- `Screen` in every value produces byte-identical output, and the driver prints no
+  complaint about the value — that code path never reads it.
+- The `JCL`-prefixed keywords found in the binary (`JCLDocumentType`,
+  `JCLDarkenText`) change nothing either.
+- Dropping `_scms` from the PPD's `*Emulators` line does not disable Smart CMS —
+  it is selected from an internal model table, and the driver still demands
+  8-bit RGB input. There is no path where the host does the halftoning.
+
+`BlackOptimization=False` is the only setting that measurably improves mid-tones
+(composite CMY instead of K-only), and the improvement is modest. It is worth
+setting as the queue default:
+
+```sh
+lpadmin -p YOUR_QUEUE -o BlackOptimization=False
 ```
 
 ## Known limitations

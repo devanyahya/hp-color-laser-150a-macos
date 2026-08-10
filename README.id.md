@@ -86,15 +86,41 @@ membandingkan byte hasilnya:
 | `Trapping=Off/Medium/Maximum` | **ya** | kecil |
 | `EdgeEnhance=Off` | **ya** | `Normal` dan `Maximum` identik |
 | `MediaType=...` | **ya** | mengirim `@PJL SET PAPERTYPE`, mengubah perilaku fuser |
-| `Screen=Normal/Enhanced/Detailed` | **tidak** | output byte-identik |
+| `Screen=Normal/Enhanced/Detailed` | **tidak** | output byte-identik; tidak pernah dibaca driver |
 | `secRGB=Standard/Vivid/Device/...` | **tidak** | output byte-identik |
 | `TonerSaveMode=Save` | **tidak** | output byte-identik |
-| `DocumentType=Photo/...` | **tidak** | bahkan tidak terdaftar sebagai opsi UI di PPD |
+| `DocumentType=Photo/...` | **tidak** | opsi JCL yang semua pilihannya berkode kosong — hanya `X-Ray` yang mengirim PJL |
 
 Contoh:
 
 ```sh
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 berkas.pdf
+```
+
+### Pola halftone tidak bisa diubah
+
+Batas kualitas yang paling terlihat adalah halftone-nya: **raster garis mendatar**
+yang celahnya lebar di nada terang dan merapat di nada gelap, sehingga nada tengah
+tampak seperti garis-garis yang tidak pernah menyatu. Area pekat terlihat paling
+baik karena di sana garisnya melebur.
+
+Pola itu terkunci di dalam mesin Smart CMS milik HP dan tidak ada opsi yang bisa
+menggesernya. Sudah dibuktikan, jadi tidak perlu diulang:
+
+- `Screen` dengan nilai apa pun menghasilkan output byte-identik, dan driver tidak
+  memprotes nilainya sama sekali — opsi itu tidak pernah dibaca di jalur kode ini.
+- Keyword ber-prefiks `JCL` yang ditemukan di binary (`JCLDocumentType`,
+  `JCLDarkenText`) juga tidak mengubah apa pun.
+- Menghapus `_scms` dari baris `*Emulators` di PPD tidak mematikan Smart CMS —
+  mode itu dipilih dari tabel internal driver, dan driver tetap menuntut masukan
+  RGB 8-bit. Tidak ada jalur di mana host yang melakukan halftone.
+
+`BlackOptimization=False` adalah satu-satunya setelan yang terukur memperbaiki nada
+tengah (komposit CMY, bukan K saja), dan perbaikannya sedang-sedang saja. Layak
+dijadikan default antrean:
+
+```sh
+lpadmin -p NAMA_ANTREAN -o BlackOptimization=False
 ```
 
 ## Batasan yang diketahui
