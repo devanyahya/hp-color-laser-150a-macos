@@ -1,0 +1,91 @@
+#!/bin/bash
+# CUPS filter for HP host-based laser printers (Laser 10x/13x, Color Laser 15x/17x)
+# on macOS. Hands the CUPS raster to HP's rastertospl running in a Linux
+# container and returns the SPL/QPDL stream to the USB backend.
+#
+# CUPS calls this as: <filter> job user title copies options [file]
+#
+# Environment notes that dictate almost every line below:
+#   * The filter runs as user _lp inside cupsd's sandbox.
+#   * That sandbox blocks network access, so the container is reached through a
+#     shared directory rather than a socket.
+#   * /bin/sh and /usr/bin/python3 are shims that read /private/var/select/...,
+#     which _lp is not allowed to open ("Operation not permitted", exit 126).
+#     Hence the explicit /bin/bash shebang and a curl-free implementation.
+#   * Files created here must be world readable: Docker's file sharing runs as
+#     the logged-in user and cannot even stat a 0600 file owned by _lp.
+
+umask 0000
+
+SPOOL_CANDIDATES=(/Users/Shared/hp-uld /private/tmp/hp-uld)
+MODEL_PPD="__MODEL_PPD__"     # diisi install.sh, mis. HP_Color_Laser_15x_Series.ppd
+HEARTBEAT_MAX_AGE=60          # detik; lebih tua dari ini berarti container mati
+JOB_TIMEOUT=1800              # detik; batas menunggu satu job
+
+JOB="$1"; USER_NAME="$2"; TITLE="$3"; COPIES="$4"; OPTIONS="$5"; FILE="$6"
+
+[ -n "$FILE" ] && exec < "$FILE"
+
+now=$(date +%s)
+
+# Pilih antrean yang bisa ditulis DAN watcher-nya masih berdetak.
+SPOOL=""
+for dir in "${SPOOL_CANDIDATES[@]}"; do
+    [ -d "$dir" ] || continue
+    probe="$dir/.probe.$$"
+    ( : > "$probe" ) 2>/dev/null || continue
+    rm -f "$probe"
+    beat=$(cat "$dir/heartbeat" 2>/dev/null)
+    if [ -n "$beat" ] && [ $((now - beat)) -lt $HEARTBEAT_MAX_AGE ]; then
+        SPOOL="$dir"
+        break
+    fi
+    echo "INFO: spool $dir is writable but the watcher is not beating" >&2
+done
+
+if [ -z "$SPOOL" ]; then
+    echo "ERROR: the HP conversion engine is not running." >&2
+    echo "ERROR: start Docker, then: docker start hp-uld-spl" >&2
+    exit 1
+fi
+
+ID="job$JOB.$$.$RANDOM"
+
+cleanup() { rm -f "$SPOOL/$ID."{raster,raster.part,meta,spl,done,failed} 2>/dev/null; }
+trap cleanup EXIT
+
+esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+cat > "$SPOOL/$ID.raster.part" || { echo "ERROR: cannot write raster to $SPOOL" >&2; exit 1; }
+printf '{"job":"%s","user":"%s","title":"%s","copies":"%s","options":"%s","ppd":"%s"}\n' \
+    "$(esc "$JOB")" "$(esc "$USER_NAME")" "$(esc "$TITLE")" \
+    "$(esc "$COPIES")" "$(esc "$OPTIONS")" "$(esc "$MODEL_PPD")" \
+    > "$SPOOL/$ID.meta"
+mv "$SPOOL/$ID.raster.part" "$SPOOL/$ID.raster"     # rename = pemicu bagi watcher
+
+waited=0
+while [ ! -f "$SPOOL/$ID.done" ]; do
+    sleep 0.2
+    waited=$((waited + 1))
+    if [ $((waited % 25)) -eq 0 ]; then              # tiap ~5 detik
+        beat=$(cat "$SPOOL/heartbeat" 2>/dev/null)
+        now=$(date +%s)
+        if [ -z "$beat" ] || [ $((now - beat)) -ge $HEARTBEAT_MAX_AGE ]; then
+            echo "ERROR: conversion engine stopped responding mid-job" >&2
+            exit 1
+        fi
+    fi
+    if [ $waited -ge $((JOB_TIMEOUT * 5)) ]; then
+        echo "ERROR: conversion timed out after ${JOB_TIMEOUT}s" >&2
+        exit 1
+    fi
+done
+
+if [ ! -s "$SPOOL/$ID.spl" ]; then
+    echo "ERROR: conversion produced no SPL data (see: docker logs hp-uld-spl)" >&2
+    exit 1
+fi
+
+cat "$SPOOL/$ID.spl" || exit 1
+echo "INFO: sent $(wc -c < "$SPOOL/$ID.spl" | tr -d ' ') bytes of SPL to the printer" >&2
+exit 0

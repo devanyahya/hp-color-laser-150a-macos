@@ -1,0 +1,11 @@
+# HP's proprietary driver is downloaded by install.sh, never committed
+*.tar.gz
+rastertospl
+libscmssc.so
+ppd/
+build/
+*.spl
+*.raster
+.DS_Store
+__pycache__/
+*.pyc
