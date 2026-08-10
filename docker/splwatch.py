@@ -37,8 +37,21 @@ def log(msg):
     sys.stderr.flush()
 
 
-def resolve_ppd(meta):
-    """Pick the PPD for this job; each printer model has its own."""
+def resolve_ppd(meta, spool):
+    """Pick the PPD for this job.
+
+    The queue's own PPD, shipped alongside the job, is what carries the user's
+    settings: CUPS passes only explicitly-changed options on the command line
+    and expects the filter to read the rest from the PPD. Falling back to the
+    model PPD baked into this image would silently restore HP's stock defaults.
+    """
+    shipped = os.path.basename(meta.get("ppd_file", "") or "")
+    if shipped:
+        candidate = os.path.join(spool, shipped)
+        if os.path.isfile(candidate):
+            return candidate
+        log("PPD antrean %r tidak ada, memakai PPD model" % shipped)
+
     name = os.path.basename(meta.get("ppd", "") or "")
     if name:
         candidate = os.path.join(PPD_DIR, name)
@@ -63,14 +76,16 @@ def convert(spool, job_id):
         log("meta %s tidak terbaca: %s" % (job_id, exc))
         meta = {}
 
-    ppd = resolve_ppd(meta)
+    ppd = resolve_ppd(meta, spool)
     args = [FILTER,
             str(meta.get("job", "1")),
             str(meta.get("user", "nobody")),
             str(meta.get("title", "job")),
             str(meta.get("copies", "1")),
             str(meta.get("options", ""))]
-    log("job %s (%s) ppd=%s" % (job_id, args[2], os.path.basename(ppd)))
+    # Log the options too: a silently-ignored setting is the failure mode this
+    # pipeline is most prone to, and this line is where you see it.
+    log("job %s (%s) ppd=%s opsi=%r" % (job_id, args[2], os.path.basename(ppd), args[5]))
 
     out_part = os.path.join(spool, job_id + ".spl.part")
     started = time.time()

@@ -51,15 +51,26 @@ fi
 
 ID="job$JOB.$$.$RANDOM"
 
-cleanup() { rm -f "$SPOOL/$ID."{raster,raster.part,meta,spl,done,failed} 2>/dev/null; }
+cleanup() { rm -f "$SPOOL/$ID."{raster,raster.part,meta,ppd,spl,done,failed} 2>/dev/null; }
 trap cleanup EXIT
 
 esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
+# Ship the queue's own PPD with the job. CUPS only passes options that were set
+# explicitly; everything left alone is expected to come from the PPD named by
+# $PPD. Without this, `lpadmin -o ...` and the macOS print dialog silently have
+# no effect, because the container would fall back to HP's stock defaults.
+PPD_COPY=""
+if [ -n "${PPD:-}" ] && [ -r "${PPD:-}" ] && cp "$PPD" "$SPOOL/$ID.ppd" 2>/dev/null; then
+    PPD_COPY="$ID.ppd"
+else
+    echo "INFO: queue PPD unavailable, falling back to the model default in the container" >&2
+fi
+
 cat > "$SPOOL/$ID.raster.part" || { echo "ERROR: cannot write raster to $SPOOL" >&2; exit 1; }
-printf '{"job":"%s","user":"%s","title":"%s","copies":"%s","options":"%s","ppd":"%s"}\n' \
+printf '{"job":"%s","user":"%s","title":"%s","copies":"%s","options":"%s","ppd":"%s","ppd_file":"%s"}\n' \
     "$(esc "$JOB")" "$(esc "$USER_NAME")" "$(esc "$TITLE")" \
-    "$(esc "$COPIES")" "$(esc "$OPTIONS")" "$(esc "$MODEL_PPD")" \
+    "$(esc "$COPIES")" "$(esc "$OPTIONS")" "$(esc "$MODEL_PPD")" "$(esc "$PPD_COPY")" \
     > "$SPOOL/$ID.meta"
 mv "$SPOOL/$ID.raster.part" "$SPOOL/$ID.raster"     # rename = pemicu bagi watcher
 
