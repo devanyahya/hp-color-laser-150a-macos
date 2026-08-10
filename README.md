@@ -44,8 +44,8 @@ Printing only. Scanning on the MFP models is not covered.
 ## Install
 
 ```sh
-git clone https://github.com/<you>/hp-uld-macos.git
-cd hp-uld-macos
+git clone https://github.com/devanyahya/hp-color-laser-150a-macos.git
+cd hp-color-laser-150a-macos
 ./install.sh
 ```
 
