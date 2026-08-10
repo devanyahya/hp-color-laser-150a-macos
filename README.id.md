@@ -97,15 +97,29 @@ Contoh:
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 berkas.pdf
 ```
 
-### Pola halftone tidak bisa diubah
+### Baca ini sebelum menilai kualitas cetak: "Best" justru lebih jelek
 
-Batas kualitas yang paling terlihat adalah halftone-nya: **raster garis mendatar**
-yang celahnya lebar di nada terang dan merapat di nada gelap, sehingga nada tengah
-tampak seperti garis-garis yang tidak pernah menyatu. Area pekat terlihat paling
-baik karena di sana garisnya melebur.
+`Quality=600x600_2` diberi label **Best** di PPD dan itulah default HP. Nada
+tengahnya dirender sebagai **raster garis mendatar** yang kasar — garis-garis
+dengan celah putih yang tidak pernah menyatu, paling parah di nada terang dan
+menengah, dan baru terlihat wajar di area yang cukup pekat sehingga garisnya melebur.
 
-Pola itu terkunci di dalam mesin Smart CMS milik HP dan tidak ada opsi yang bisa
-menggesernya. Sudah dibuktikan, jadi tidak perlu diulang:
+`Quality=600x600_1`, yang dilabeli **Normal**, jauh lebih halus. Keduanya
+mengirim `HWResolution [600 600]`; angka di belakang memilih mode halftone
+internal, bukan resolusi. Karena itu installer memasang `600x600_1` sebagai default.
+
+```sh
+lpadmin -p NAMA_ANTREAN -o Quality=600x600_1 -o BlackOptimization=False
+```
+
+Jangan menilai dari ukuran output — justru itu jebakan yang sempat menyesatkan di
+sini cukup lama: "Best" menghasilkan sekitar **dua kali lipat** data SPL
+dibanding "Normal", tapi hasilnya lebih jelek. Cetak keduanya dan bandingkan di kertas.
+
+`BlackOptimization=False` menambah sedikit perbaikan pada nada tengah (komposit
+CMY, bukan K saja).
+
+Yang memang tidak bisa diubah, sudah dibuktikan supaya tidak perlu diulang:
 
 - `Screen` dengan nilai apa pun menghasilkan output byte-identik, dan driver tidak
   memprotes nilainya sama sekali — opsi itu tidak pernah dibaca di jalur kode ini.
@@ -114,14 +128,20 @@ menggesernya. Sudah dibuktikan, jadi tidak perlu diulang:
 - Menghapus `_scms` dari baris `*Emulators` di PPD tidak mematikan Smart CMS —
   mode itu dipilih dari tabel internal driver, dan driver tetap menuntut masukan
   RGB 8-bit. Tidak ada jalur di mana host yang melakukan halftone.
+- `MediaType=Thick` menaikkan suhu fuser lewat PJL, tapi tidak membuat garis
+  rasternya menyatu.
 
-`BlackOptimization=False` adalah satu-satunya setelan yang terukur memperbaiki nada
-tengah (komposit CMY, bukan K saja), dan perbaikannya sedang-sedang saja. Layak
-dijadikan default antrean:
+### Kertas tipis dan licin
+
+`MediaType` mengatur suhu fuser lewat `@PJL SET PAPERTYPE`. Untuk kertas tipis
+yang cenderung menempel di drum, `MediaType=Thin` menurunkan suhunya:
 
 ```sh
-lpadmin -p NAMA_ANTREAN -o BlackOptimization=False
+lp -d NAMA_ANTREAN -o MediaType=Thin berkas.pdf
 ```
+
+Konsekuensinya, di kertas HVS biasa toner jadi kurang matang dan lebih mudah
+tergosok — kembalikan ke `Plain` untuk cetak sehari-hari.
 
 ## Batasan yang diketahui
 

@@ -238,14 +238,19 @@ sudo /bin/bash "$ROOT_SCRIPT"
 # ------------------------------------------------------------ create queue --
 say "Creating the print queue"
 
+# Quality=600x600_1 is HP's "Normal" and looks far smoother than "Best"
+# (600x600_2), which renders mid-tones as a coarse horizontal line screen.
+# Both send HWResolution [600 600]; see the quality section in README.md.
 lpadmin -p "$QUEUE" -E \
     -v "$DEVICE_URI" \
     -P "$PPD_DIR/$PPD_NAME" \
     -D "$MODEL" -L "USB" \
     -o printer-is-shared=false \
     -o printer-error-policy=retry-job \
-    -o "PageSize=$PAPER" 2>&1 | grep -v 'deprecated' || true
-echo "    queue \"$QUEUE\" -> $MODEL ($PAPER)"
+    -o "PageSize=$PAPER" \
+    -o Quality=600x600_1 \
+    -o BlackOptimization=False 2>&1 | grep -v 'deprecated' || true
+echo "    queue \"$QUEUE\" -> $MODEL ($PAPER, finer halftone)"
 
 # -------------------------------------------------------------- smoke test --
 if [ "$RUN_SMOKE_TEST" -eq 1 ]; then

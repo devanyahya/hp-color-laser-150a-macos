@@ -91,14 +91,29 @@ Example:
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 file.pdf
 ```
 
-### The halftone screen cannot be changed
+### Read this before judging print quality: "Best" is the worse setting
 
-The most visible quality limit is the halftone: a **horizontal line screen** whose
-gaps are wide in light tones and close up in dark ones, so mid-tones look like
-stripes that never quite merge. Dark areas look best because the lines fuse there.
+`Quality=600x600_2` is labelled **Best** in the PPD and is HP's default. It renders
+mid-tones as a coarse **horizontal line screen** — visible stripes with white gaps
+that never merge, worst in light and mid tones, tolerable only where the ink is
+dense enough for the lines to fuse.
 
-It is fixed inside HP's Smart CMS engine and nothing exposed can move it. Verified,
-so you do not have to repeat it:
+`Quality=600x600_1`, labelled **Normal**, is dramatically smoother. Both emit
+`HWResolution [600 600]`; the suffix selects an internal halftone mode, not a
+resolution. The installer therefore sets `600x600_1` as the queue default.
+
+```sh
+lpadmin -p YOUR_QUEUE -o Quality=600x600_1 -o BlackOptimization=False
+```
+
+Do not judge this from the output size, which is the trap that hid it here for a
+long time: "Best" produces roughly **twice** the SPL data of "Normal" and still
+looks worse. Print both and compare on paper.
+
+`BlackOptimization=False` helps mid-tones a little more on top of that (composite
+CMY instead of K-only).
+
+Things that genuinely cannot be changed, verified so you need not repeat it:
 
 - `Screen` in every value produces byte-identical output, and the driver prints no
   complaint about the value — that code path never reads it.
@@ -107,14 +122,8 @@ so you do not have to repeat it:
 - Dropping `_scms` from the PPD's `*Emulators` line does not disable Smart CMS —
   it is selected from an internal model table, and the driver still demands
   8-bit RGB input. There is no path where the host does the halftoning.
-
-`BlackOptimization=False` is the only setting that measurably improves mid-tones
-(composite CMY instead of K-only), and the improvement is modest. It is worth
-setting as the queue default:
-
-```sh
-lpadmin -p YOUR_QUEUE -o BlackOptimization=False
-```
+- `MediaType=Thick` raises the fuser temperature via PJL but does not make the
+  line screen merge.
 
 ## Known limitations
 
