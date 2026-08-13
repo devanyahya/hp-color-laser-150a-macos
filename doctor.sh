@@ -77,10 +77,37 @@ fi
 
 if pgrep -f /usr/libexec/ippusbd >/dev/null 2>&1; then
     fail "ippusbd is running - it locks the USB interface and makes the queue go offline"
-    note "fix: sudo pkill -f /usr/libexec/ippusbd  (the suppressor LaunchDaemon should do this)"
+    note "fix: sudo pkill -f /usr/libexec/ippusbd"
 else
     pass "ippusbd is not holding the USB interface"
 fi
+
+# Killing ippusbd is not enough on its own: launchd restarts it from a
+# per-printer job, so it comes straight back. The job must be disabled.
+# A disabled job usually no longer appears in `launchctl list`, so both the
+# live list and the disabled database have to be consulted.
+live_jobs="$(launchctl list 2>/dev/null | awk -F'\t' '$3 ~ /^com\.apple\.print\.ippusb\./ {print $3}')"
+off_jobs="$(launchctl print-disabled system 2>/dev/null |
+            sed -n 's/.*"\(com\.apple\.print\.ippusb\.[^"]*\)" => disabled.*/\1/p')"
+
+# Fed by here-strings, not pipes: a pipeline runs the loop in a subshell and
+# the failure count would be lost.
+if [ -n "$off_jobs" ]; then
+    while IFS= read -r label; do
+        [ -n "$label" ] && pass "launchd job disabled: $label"
+    done <<< "$off_jobs"
+fi
+if [ -n "$live_jobs" ]; then
+    while IFS= read -r label; do
+        [ -n "$label" ] || continue
+        if ! printf '%s\n' "$off_jobs" | grep -Fqx "$label"; then
+            fail "launchd job still enabled: $label"
+            note "it will restart ippusbd and take the USB interface back"
+            note "fix: sudo launchctl disable \"system/$label\""
+        fi
+    done <<< "$live_jobs"
+fi
+[ -z "$off_jobs" ] && [ -z "$live_jobs" ] && pass "no com.apple.print.ippusb launchd job registered"
 
 echo
 echo "queues"

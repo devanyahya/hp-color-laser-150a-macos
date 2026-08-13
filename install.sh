@@ -204,6 +204,19 @@ install -o root -g wheel -m 644 "$WORK_DIR/patched.ppd" "$PPD_DIR/$PPD_NAME"
 echo "    installed $FILTER_DIR/$FILTER_NAME"
 echo "    installed $PPD_DIR/$PPD_NAME"
 
+# macOS registers a per-printer launchd job, com.apple.print.ippusb.<make>.<model>.<serial>,
+# that starts /usr/libexec/ippusbd. That daemon claims the USB interface and the
+# queue goes offline with "Unable to send data to printer", for an AirPrint path
+# that never works on these models. Disabling the job is the real fix; the state
+# is stored by launchd and survives reboots.
+launchctl list 2>/dev/null | awk -F'\t' '\$3 ~ /^com\.apple\.print\.ippusb\./ {print \$3}' |
+while IFS= read -r label; do
+    launchctl disable "system/\$label" 2>/dev/null
+    launchctl bootout "system/\$label" 2>/dev/null
+    echo "    disabled launchd job: \$label"
+done
+pkill -f /usr/libexec/ippusbd 2>/dev/null || true
+
 if [ "$INSTALL_SUPPRESSOR" -eq 1 ]; then
     cat > "$PLIST" <<'PLIST_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -223,8 +236,7 @@ PLIST_EOF
     chmod 644 "$PLIST"
     launchctl bootout system/local.ippusbd-suppressor 2>/dev/null || true
     launchctl bootstrap system "$PLIST"
-    pkill -f /usr/libexec/ippusbd 2>/dev/null || true
-    echo "    installed $PLIST (kills ippusbd every 30s; it locks the USB interface)"
+    echo "    installed $PLIST (safety net: catches an ippusbd job registered later)"
 fi
 EOF
 chmod +x "$ROOT_SCRIPT"

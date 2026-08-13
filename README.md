@@ -158,9 +158,22 @@ Two more traps worth knowing:
   (class 7/1, protocol 4) on *alternate setting 1*, so macOS starts
   `/usr/libexec/ippusbd` on connect. It never manages to use the printer — the
   Add Printer dialog still asks for a driver — but it holds the interface, and
-  the queue reports *"printer is offline"*. Even `root` cannot claim the
-  interface with libusb, so OpenPrinting's `ipp-usb` does not help either. A
-  LaunchDaemon terminates it every 30 seconds.
+  the queue reports *"printer is offline"* or *"Unable to send data to printer"*.
+  Even `root` cannot claim the interface with libusb, so OpenPrinting's
+  `ipp-usb` does not help either.
+
+  Killing the process is not a fix: macOS registers a **per-printer launchd job**
+  named `com.apple.print.ippusb.<make>.<model>.<serial>` that restarts it
+  immediately, so a periodic `pkill` loses the race more often than it wins.
+  The installer disables that job, which launchd remembers across reboots:
+
+  ```sh
+  launchctl list | awk -F'\t' '$3 ~ /^com\.apple\.print\.ippusb\./ {print $3}'
+  sudo launchctl disable "system/<the label>"
+  ```
+
+  `uninstall.sh` re-enables it. A `pkill` LaunchDaemon is still installed as a
+  safety net for a job that appears after installation.
 - **`lpadmin -m everywhere` cannot be used with a `usb://` URI.** CUPS 2.3 parses
   the host part as a network name and fails with `Unable to connect to "HP:0"`.
   `ipp2ppd` has the same defect.

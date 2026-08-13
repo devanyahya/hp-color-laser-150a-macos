@@ -39,13 +39,21 @@ if [ "$KEEP_IMAGE" -eq 0 ]; then
     docker rmi "$IMAGE" >/dev/null 2>&1 && echo "    image $IMAGE" || true
 fi
 
-say "Removing files (needs administrator rights)"
+say "Removing files and restoring macOS defaults (needs administrator rights)"
 sudo -v
 if [ -f "$PLIST" ]; then
     sudo launchctl bootout system/local.ippusbd-suppressor 2>/dev/null
     sudo rm -f "$PLIST"
     echo "    $PLIST"
 fi
+
+# Re-enable the per-printer IPP-over-USB jobs the installer switched off.
+launchctl print-disabled system 2>/dev/null |
+    sed -n 's/.*"\(com\.apple\.print\.ippusb\.[^"]*\)" => disabled.*/\1/p' |
+while IFS= read -r label; do
+    sudo launchctl enable "system/$label" 2>/dev/null
+    echo "    re-enabled launchd job: $label"
+done
 [ -d "$BASE_DIR" ] && sudo rm -rf "$BASE_DIR" && echo "    $BASE_DIR"
 [ -d "$SPOOL" ]    && rm -rf "$SPOOL"         && echo "    $SPOOL"
 

@@ -176,9 +176,23 @@ Dua jebakan lain yang perlu diketahui:
   (class 7/1, protokol 4) di *alternate setting 1*, sehingga macOS menjalankan
   `/usr/libexec/ippusbd` begitu dicolok. Daemon itu tidak pernah berhasil
   memakainya — dialog Add Printer tetap meminta driver — tapi tetap memegang
-  interface-nya, dan antrean jadi berstatus *"printer is offline"*. Bahkan `root`
-  tidak bisa merebut interface itu lewat libusb, jadi `ipp-usb` dari OpenPrinting
-  pun tidak menolong. Sebuah LaunchDaemon menghentikannya tiap 30 detik.
+  interface-nya, dan antrean jadi berstatus *"printer is offline"* atau
+  *"Unable to send data to printer"*. Bahkan `root` tidak bisa merebut interface
+  itu lewat libusb, jadi `ipp-usb` dari OpenPrinting pun tidak menolong.
+
+  Membunuh prosesnya bukan solusi: macOS mendaftarkan **job launchd khusus per
+  printer** bernama `com.apple.print.ippusb.<merek>.<model>.<serial>` yang
+  langsung menghidupkannya lagi, sehingga `pkill` berkala lebih sering kalah
+  daripada menang. Installer menonaktifkan job itu, dan launchd mengingatnya
+  melewati restart:
+
+  ```sh
+  launchctl list | awk -F'\t' '$3 ~ /^com\.apple\.print\.ippusb\./ {print $3}'
+  sudo launchctl disable "system/<label-nya>"
+  ```
+
+  `uninstall.sh` mengaktifkannya kembali. LaunchDaemon `pkill` tetap dipasang
+  sebagai jaring pengaman kalau ada job baru muncul setelah pemasangan.
 - **`lpadmin -m everywhere` tidak bisa dipakai dengan URI `usb://`.** CUPS 2.3
   menganggap bagian host sebagai nama jaringan dan gagal dengan
   `Unable to connect to "HP:0"`. `ipp2ppd` punya cacat yang sama.
