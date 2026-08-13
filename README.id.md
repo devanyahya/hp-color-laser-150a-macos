@@ -97,6 +97,29 @@ Contoh:
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 berkas.pdf
 ```
 
+### Menghemat toner: `TonerSaveMode` tidak berfungsi, pakai ini
+
+PPD menyediakan `TonerSaveMode`, tapi kedua pilihannya berkode kosong dan
+outputnya byte-identik. Opsi itu mati pada model-model ini.
+
+Yang benar-benar bekerja:
+
+| Setelan | Efek pada satu halaman uji |
+|---|---|
+| `ColorModel=Gray` | `@PJL SET COLORMODE = MONO`, hanya katrid hitam — 900 KB → 244 KB |
+| `secBrightness=70` (50 netral, makin besar makin terang) | keseluruhan lebih tipis |
+| keduanya sekaligus | 202 KB |
+
+Mode abu-abu adalah penghematan terbesar di printer laser warna: tiga katrid
+warna sama sekali tidak terpakai. Daripada mengorbankan kualitas antrean utama,
+buat antrean kedua ke perangkat yang sama khusus untuk draf:
+
+```sh
+lpadmin -p HP_150a_Draft -E -v "$(lpinfo -v | awk '/usb:/ {print $2}')" \
+    -P /Library/Printers/HP-ULD/ppd/HP_Color_Laser_15x_Series.ppd \
+    -o ColorModel=Gray -o secBrightness=70 -o Quality=600x600_1
+```
+
 ### Baca ini sebelum menilai kualitas cetak: "Best" justru lebih jelek
 
 `Quality=600x600_2` diberi label **Best** di PPD dan itulah default HP. Nada

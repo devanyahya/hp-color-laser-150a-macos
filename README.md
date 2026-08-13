@@ -91,6 +91,29 @@ Example:
 lp -d HP_Color_Laser_150 -o BlackOptimization=False -o secBrightness=40 file.pdf
 ```
 
+### Saving toner: `TonerSaveMode` does nothing, use these instead
+
+The PPD offers `TonerSaveMode`, but both of its choices carry an empty code
+string, and the output is byte-identical either way. It is dead on these models.
+
+What actually works:
+
+| Setting | Effect on one test page |
+|---|---|
+| `ColorModel=Gray` | `@PJL SET COLORMODE = MONO`, black cartridge only — 900 KB → 244 KB |
+| `secBrightness=70` (50 is neutral, higher is lighter) | lighter overall |
+| both together | 202 KB |
+
+Grayscale is the big one on a colour laser: it leaves the three colour
+cartridges untouched. Rather than trading quality away on your main queue, add a
+second queue against the same device for drafts:
+
+```sh
+lpadmin -p HP_150a_Draft -E -v "$(lpinfo -v | awk '/usb:/ {print $2}')" \
+    -P /Library/Printers/HP-ULD/ppd/HP_Color_Laser_15x_Series.ppd \
+    -o ColorModel=Gray -o secBrightness=70 -o Quality=600x600_1
+```
+
 ### Read this before judging print quality: "Best" is the worse setting
 
 `Quality=600x600_2` is labelled **Best** in the PPD and is HP's default. It renders
