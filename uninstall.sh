@@ -13,6 +13,18 @@ KEEP_IMAGE=0
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
+# Run one shell script with root rights, asking for the password only once.
+# In an interactive terminal sudo prompts as usual; in a non-interactive one
+# (SSH without a TTY, CI, agents) sudo cannot prompt, so fall back to the
+# macOS password dialog.
+run_as_root() {
+    if [ -t 0 ]; then
+        sudo /bin/bash "$1"
+    else
+        osascript -e "do shell script \"/bin/bash '$1'\" with administrator privileges"
+    fi
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --keep-image) KEEP_IMAGE=1; shift ;;
@@ -40,21 +52,32 @@ if [ "$KEEP_IMAGE" -eq 0 ]; then
 fi
 
 say "Removing files and restoring macOS defaults (needs administrator rights)"
-sudo -v
+# All root steps go into a single script that is elevated once — the same
+# pattern install.sh already uses for its root-install.sh.
+ROOT_SCRIPT="$(mktemp -t hp-uld-uninstall)"
+{
+    cat <<EOF
+#!/bin/bash
 if [ -f "$PLIST" ]; then
-    sudo launchctl bootout system/local.ippusbd-suppressor 2>/dev/null
-    sudo rm -f "$PLIST"
+    launchctl bootout system/local.ippusbd-suppressor 2>/dev/null
+    rm -f "$PLIST"
     echo "    $PLIST"
 fi
-
-# Re-enable the per-printer IPP-over-USB jobs the installer switched off.
-launchctl print-disabled system 2>/dev/null |
-    sed -n 's/.*"\(com\.apple\.print\.ippusb\.[^"]*\)" => disabled.*/\1/p' |
-while IFS= read -r label; do
-    sudo launchctl enable "system/$label" 2>/dev/null
-    echo "    re-enabled launchd job: $label"
-done
-[ -d "$BASE_DIR" ] && sudo rm -rf "$BASE_DIR" && echo "    $BASE_DIR"
-[ -d "$SPOOL" ]    && rm -rf "$SPOOL"         && echo "    $SPOOL"
+EOF
+    # Re-enable the per-printer IPP-over-USB jobs the installer switched off.
+    launchctl print-disabled system 2>/dev/null |
+        sed -n 's/.*"\(com\.apple\.print\.ippusb\.[^"]*\)" => disabled.*/\1/p' |
+    while IFS= read -r label; do
+        printf 'launchctl enable "system/%s" 2>/dev/null && echo "    re-enabled launchd job: %s"\n' \
+            "$label" "$label"
+    done
+    cat <<EOF
+[ -d "$BASE_DIR" ] && { rm -rf "$BASE_DIR"; echo "    $BASE_DIR"; }
+EOF
+} > "$ROOT_SCRIPT"
+chmod +x "$ROOT_SCRIPT"
+run_as_root "$ROOT_SCRIPT"
+rm -f "$ROOT_SCRIPT"
+[ -d "$SPOOL" ] && rm -rf "$SPOOL" && echo "    $SPOOL"
 
 printf '\n\033[32mDone.\033[0m HP driver files downloaded during install were temporary and are already gone.\n'

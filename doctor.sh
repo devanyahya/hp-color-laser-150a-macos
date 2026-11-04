@@ -27,7 +27,8 @@ if docker info >/dev/null 2>&1; then
     fi
 else
     fail "the container runtime is not running"
-    note "fix: start Docker Desktop (and enable start-at-login)"
+    note "fix: start Docker Desktop (and enable start-at-login), or: colima start"
+    note "      for colima to survive a reboot: brew services start colima"
 fi
 
 echo
@@ -45,6 +46,10 @@ if [ -d "$SPOOL" ]; then
     else
         fail "no heartbeat file - the container cannot see $SPOOL"
         note "fix: add $SPOOL to Docker's file sharing list, then reinstall"
+        if [ "$(docker context show 2>/dev/null)" = "colima" ]; then
+            note "colima: custom mounts replace the defaults; restart with"
+            note "  colima stop && colima start --mount-type virtiofs --mount $SPOOL:w --mount \"\$HOME\":w"
+        fi
     fi
 else
     fail "$SPOOL is missing"

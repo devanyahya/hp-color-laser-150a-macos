@@ -7,7 +7,10 @@ and cannot render PostScript or PCL themselves, so generic drivers produce nothi
 This project runs **HP's own Linux driver inside a container**, while **macOS keeps
 ownership of the USB connection**. You print from any app to a normal print queue.
 
-Tested on macOS 26.3 (Apple Silicon) with an HP Color Laser 150a.
+Tested on macOS 26.3 (Apple Silicon) with an HP Color Laser 150a; also verified on
+macOS 26.6.2 with Colima as the container runtime and the same printer.
+
+[中文版说明见 README.zh.md](README.zh.md)
 
 ```
 Application
@@ -57,12 +60,46 @@ conversion self-test that uses no paper.
 Useful flags: `--queue NAME`, `--paper Letter`, `--uri URI` (several printers
 attached), `--ppd FILE.ppd`, `--no-suppressor`. See `./install.sh --help`.
 
-Enable **"Start Docker Desktop when you sign in"** so printing survives a reboot.
+So printing survives a reboot, make the container runtime start automatically:
+
+- Docker Desktop: enable *"Start Docker Desktop when you sign in"*
+- Colima: `brew services start colima`
 
 ```sh
 ./doctor.sh      # check every layer and report what is broken
 ./uninstall.sh   # remove queue, container, filter, PPD, LaunchDaemon
 ```
+
+## Using Colima
+
+Colima works well and is free, but note one sharp edge its documentation understates:
+**custom mounts replace the default ones.** The spool directory `/Users/Shared/hp-uld`
+must be visible inside the VM, so if you configure custom mounts (in `colima.yaml` or
+via `--mount`), keep the spool in the list — and quote `~` in the YAML:
+
+```sh
+colima stop
+colima start --mount-type virtiofs \
+    --mount /Users/Shared/hp-uld:w \
+    --mount "$HOME":w
+```
+
+Both `install.sh` (in its heartbeat check) and `doctor.sh` detect Colima and print
+this fix when the container cannot see the spool.
+
+## Proxy
+
+If your network cannot reach HP's download server or the Debian/apt mirrors, export a
+proxy before installing and it will be passed to the download and the container build:
+
+```sh
+export HTTPS_PROXY=http://127.0.0.1:7890
+./install.sh
+```
+
+Pulling the Debian base image goes through the container runtime's own proxy
+configuration (for Colima that is the docker daemon config inside the VM), not these
+variables.
 
 ## Print options that actually do something
 
@@ -156,6 +193,19 @@ Things that genuinely cannot be changed, verified so you need not repeat it:
 - **The container must be running.** If it is not, jobs fail immediately with a
   clear message rather than hanging — the filter checks a heartbeat file first.
 - **No scanning** for MFP models.
+
+## Troubleshooting
+
+- **`doctor.sh` is the first stop** — it checks the runtime, container, spool,
+  heartbeat, filter permissions, USB detection, the `ippusbd` conflict and queue
+  state, and prints the fix for each broken layer.
+- **Jobs fail with "conversion engine is not running"** — start the runtime
+  (`colima start` / open Docker Desktop); the container has `--restart unless-stopped`
+  and comes back with it.
+- **The printer is stuck on an old job** (data LED blinking, nothing prints) — the
+  printer's memory still holds a half-finished page. **Long-press the printer's
+  Cancel/Resume button** until it clears, then resend the job. If it keeps happening,
+  check `docker logs hp-uld-spl` for a failed conversion.
 
 ## What made this hard
 
