@@ -1,5 +1,12 @@
 FROM debian:bookworm-slim
 
+# Proxy for apt inside the build, passed by install.sh only when
+# HTTP_PROXY/HTTPS_PROXY are set in the environment. BuildKit also predefines
+# these, so this is just for compatibility with legacy builders.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 # Runtime deps of HP's rastertospl (checked with ldd on the shipped binary).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libcups2 libcupsimage2 libstdc++6 python3 \

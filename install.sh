@@ -25,12 +25,32 @@ INSTALL_SUPPRESSOR=1
 RUN_SMOKE_TEST=1
 KEEP_DOWNLOAD=0
 
+# Optional outbound proxy. If HP's download server or the apt mirrors are
+# unreachable on your network, export these before running the installer:
+#   export HTTPS_PROXY=http://127.0.0.1:7890
+# They are passed to curl and to the container build. (Pulling the Debian
+# base image goes through the container runtime's own proxy configuration,
+# not these variables — see "Proxy" in README.md.)
+HTTP_PROXY="${HTTP_PROXY:-}"
+HTTPS_PROXY="${HTTPS_PROXY:-}"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR=""
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Run one shell script with root rights. In an interactive terminal sudo
+# prompts as usual; in a non-interactive one (SSH without a TTY, CI, agents)
+# sudo cannot prompt, so fall back to the macOS password dialog.
+run_as_root() {
+    if [ -t 0 ]; then
+        sudo /bin/bash "$1"
+    else
+        osascript -e "do shell script \"/bin/bash '$1'\" with administrator privileges"
+    fi
+}
 
 cleanup() { [ -n "$WORK_DIR" ] && [ "$KEEP_DOWNLOAD" -eq 0 ] && rm -rf "$WORK_DIR" || true; }
 trap cleanup EXIT
@@ -133,7 +153,10 @@ say "Fetching HP's Unified Linux Driver"
 
 WORK_DIR="$(mktemp -d -t hp-uld)"
 TARBALL="$WORK_DIR/uld.tar.gz"
-curl -fsSL --retry 3 -o "$TARBALL" "$ULD_URL" || die "download failed: $ULD_URL"
+CURL_OPTS=(-fsSL --retry 3)
+[ -n "$HTTPS_PROXY" ] && CURL_OPTS+=(--proxy "$HTTPS_PROXY")
+curl "${CURL_OPTS[@]}" -o "$TARBALL" "$ULD_URL" || \
+    die "download failed: $ULD_URL (unreachable? try: export HTTPS_PROXY=http://host:port)"
 
 actual="$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
 if [ "$actual" != "$ULD_SHA256" ]; then
@@ -158,7 +181,10 @@ cp "$WORK_DIR/uld/$ULD_ARCH/rastertospl" "$WORK_DIR/uld/$ULD_ARCH/libscmssc.so" 
 cp -R "$WORK_DIR/uld/noarch/share/ppd" "$BUILD_DIR/ppd"
 cp "$REPO_DIR/docker/Dockerfile" "$REPO_DIR/docker/splwatch.py" "$BUILD_DIR/"
 
-docker build -q -t "$IMAGE" "$BUILD_DIR" >/dev/null
+BUILD_ARGS=()
+[ -n "$HTTP_PROXY" ]  && BUILD_ARGS+=(--build-arg "HTTP_PROXY=$HTTP_PROXY")
+[ -n "$HTTPS_PROXY" ] && BUILD_ARGS+=(--build-arg "HTTPS_PROXY=$HTTPS_PROXY")
+docker build -q "${BUILD_ARGS[@]}" -t "$IMAGE" "$BUILD_DIR" >/dev/null
 echo "    image built: $IMAGE"
 
 mkdir -p "$SPOOL"
@@ -173,9 +199,23 @@ for _ in $(seq 1 30); do
     [ -f "$SPOOL/heartbeat" ] && break
     sleep 0.5
 done
-[ -f "$SPOOL/heartbeat" ] || die "the container did not produce a heartbeat in $SPOOL
+if [ ! -f "$SPOOL/heartbeat" ]; then
+    if [ "$(docker context show 2>/dev/null)" = "colima" ]; then
+        die "the container did not produce a heartbeat in $SPOOL
+     check: docker logs $CONTAINER
+     Colima note: custom colima mounts REPLACE the default ones, and the spool
+     directory must be shared with the VM. If it is missing, restart colima
+     with the spool mounted (keep \$HOME too, other mounts you rely on as
+     well — the custom list replaces the default):
+       colima stop
+       colima start --mount-type virtiofs --mount \"$SPOOL\":w --mount \"\$HOME\":w
+     then re-run ./install.sh"
+    else
+        die "the container did not produce a heartbeat in $SPOOL
      check: docker logs $CONTAINER
      if the spool is not shared with the container, add $SPOOL to Docker's file sharing list."
+    fi
+fi
 echo "    heartbeat present"
 
 # --------------------------------------------------------- install to /Library --
@@ -242,7 +282,7 @@ EOF
 chmod +x "$ROOT_SCRIPT"
 
 echo "    the following will run as root: $ROOT_SCRIPT"
-sudo /bin/bash "$ROOT_SCRIPT"
+run_as_root "$ROOT_SCRIPT"
 
 [ "$INSTALL_SUPPRESSOR" -eq 1 ] || \
     warn "skipping the ippusbd suppressor; the queue may report \"printer is offline\""
@@ -286,8 +326,9 @@ cat <<EOF
 $(printf '\033[32mDone.\033[0m') Print to "$QUEUE" from any application.
 
 Keep in mind:
-  * The container must be running for printing to work. Enable
-    "Start Docker Desktop when you sign in" so this survives a reboot.
+  * The container must be running for printing to work. To survive a reboot:
+      - Docker Desktop: enable "Start Docker Desktop when you sign in"
+      - Colima:        brew services start colima
   * Diagnose problems with:  ./doctor.sh
   * Watch conversions with:  docker logs -f $CONTAINER
   * Remove everything with:  ./uninstall.sh
